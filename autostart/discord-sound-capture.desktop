@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Discord Sound Capture
+Comment=Choose which apps are heard in Discord screen share
+Exec=@BIN@ --hidden
+Icon=audio-volume-high
+Terminal=false
+Categories=AudioVideo;Audio;
