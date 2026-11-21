@@ -60,6 +60,17 @@ Requires Rust (edition 2024, stable) and `libpulse` headers.
 cargo install --path .        # installs to ~/.cargo/bin
 ```
 
+## Application launcher
+
+```sh
+mkdir -p ~/.local/share/applications
+sed "s|@BIN@|$HOME/.cargo/bin/discord-sound-capture|" \
+  desktop/discord-sound-capture.desktop \
+  > ~/.local/share/applications/discord-sound-capture.desktop
+```
+
+The app then appears in application menus and launchers and opens its window.
+
 ## Autostart
 
 `--hidden` starts without opening the window (tray only).
