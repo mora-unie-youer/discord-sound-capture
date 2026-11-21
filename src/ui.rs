@@ -54,8 +54,8 @@ fn quick_regex_buttons<'a>(binary: Option<&str>, app_name: Option<&str>) -> Elem
         }
     };
     row![
-        mk("regex: процесс", Field::ProcessBinary, binary),
-        mk("regex: название", Field::ApplicationName, app_name),
+        mk("regex: process", Field::ProcessBinary, binary),
+        mk("regex: name", Field::ApplicationName, app_name),
     ]
     .spacing(4)
     .into()
@@ -77,7 +77,7 @@ impl App {
             LoadOutcome::Missing => Config::default(),
             LoadOutcome::Broken { moved_to, error } => {
                 banners.config_error = Some(format!(
-                    "Конфиг повреждён ({error}), сохранён как {}",
+                    "Config is corrupted ({error}), saved as {}",
                     moved_to.display()
                 ));
                 Config::default()
@@ -116,7 +116,7 @@ impl App {
     fn persist(&mut self) {
         match config::save(&self.config) {
             Ok(()) => self.banners.save_error = None,
-            Err(e) => self.banners.save_error = Some(format!("Не удалось сохранить конфиг: {e}")),
+            Err(e) => self.banners.save_error = Some(format!("Failed to save config: {e}")),
         }
         if let Some(core) = &self.core {
             core.send(Command::SetRules(self.config.rules.clone()));
@@ -160,7 +160,7 @@ impl App {
                     let (inn, blocked) = (count(CaptureStatus::InStream), count(CaptureStatus::Blocked));
                     self.snapshot = s;
                     if let Some(t) = &self.tray {
-                        t.0.update(|t| t.tooltip = format!("В стриме: {inn}, заглушено: {blocked}"));
+                        t.0.update(|t| t.tooltip = format!("In stream: {inn}, muted: {blocked}"));
                     }
                     Task::none()
                 }
@@ -279,32 +279,32 @@ impl App {
             col = col.push(b);
         }
 
-        col = col.push(text("Приложения").size(20));
+        col = col.push(text("Applications").size(20));
         for r in self.app_rows() {
             col = col.push(r);
         }
 
-        col = col.push(text("Regex-правила").size(20));
+        col = col.push(text("Regex rules").size(20));
         for (i, rule) in self.config.rules.iter().enumerate() {
             if let Rule::Regex { field, pattern, enabled } = rule {
                 col = col.push(self.regex_row(i, field, pattern, *enabled));
             }
         }
-        col = col.push(button("+ Добавить regex").on_press(Message::AddRegex));
+        col = col.push(button("+ Add regex").on_press(Message::AddRegex));
         col = col.push(
-            text("Совпадение по подстроке; используйте ^…$ для точного. Поток разрешён, если совпало любое правило.")
+            text("Substring match; use ^…$ for an exact match. A stream is allowed if any rule matches.")
                 .size(12),
         );
 
         if self.quitting {
-            col = col.push(text("Завершение: возвращаю звук…"));
+            col = col.push(text("Quitting: restoring audio…"));
         } else {
             let mut footer = row![].spacing(8);
             if self.tray_available {
-                footer = footer.push(button("Скрыть в трей").on_press(Message::HideToTray));
+                footer = footer.push(button("Hide to tray").on_press(Message::HideToTray));
             }
             footer = footer.push(
-                button("Выход (вернуть весь звук)")
+                button("Quit (restore all audio)")
                     .on_press(Message::Quit)
                     .style(button::danger),
             );
@@ -327,11 +327,11 @@ impl App {
                 container(
                     column![
                         text(format!(
-                            "Правило WirePlumber не найдено: заглушённое состояние может сохраниться после выхода. Создайте {} и перезапустите стек PipeWire.",
+                            "WirePlumber rule not found: the muted state may persist after exit. Create {} and restart the PipeWire stack.",
                             wpcheck::WP_RULE_PATH_HINT
                         ))
                         .style(text::warning),
-                        button("Скопировать правило").on_press(Message::CopyWpRule),
+                        button("Copy rule").on_press(Message::CopyWpRule),
                     ]
                     .spacing(8),
                 )
@@ -342,10 +342,10 @@ impl App {
             );
         }
         if !self.snapshot.connected {
-            v.push(banner("Нет соединения с PulseAudio, переподключение…".into(), true));
+            v.push(banner("No connection to PulseAudio, reconnecting…".into(), true));
         }
         if b.core_died {
-            v.push(banner("Ядро остановилось. Перезапустите приложение.".into(), false));
+            v.push(banner("Core stopped. Restart the application.".into(), false));
         }
         if let Some(e) = &b.config_error {
             v.push(banner(e.clone(), false));
@@ -355,7 +355,7 @@ impl App {
         }
         if !self.tray_available {
             v.push(banner(
-                "Трей недоступен: закрытие окна завершит программу и вернёт весь звук.".into(),
+                "Tray unavailable: closing the window will quit and restore all audio.".into(),
                 true,
             ));
         }
@@ -452,7 +452,7 @@ impl App {
                         line_height: iced::widget::text::LineHeight::default(),
                         shaping: iced::widget::text::Shaping::Basic,
                     }),
-                    text(format!("{name} — нет application.process.binary")),
+                    text(format!("{name} — no application.process.binary")),
                     space().width(Fill),
                     quick_regex_buttons(None, v.info.app_name.as_deref()),
                     st,
@@ -473,7 +473,7 @@ impl App {
         enabled: bool,
     ) -> Element<'a, Message> {
         let status = match validate_pattern(pattern) {
-            Err(e) => text(format!("ошибка: {}", e.lines().next().unwrap_or(""))).style(text::danger),
+            Err(e) => text(format!("error: {}", e.lines().next().unwrap_or(""))).style(text::danger),
             Ok(()) => {
                 let n = regex::Regex::new(pattern)
                     .map(|re| {
@@ -485,16 +485,16 @@ impl App {
                     })
                     .unwrap_or(0);
                 if enabled {
-                    text(format!("совпадений: {n}"))
+                    text(format!("matches: {n}"))
                 } else {
-                    text(format!("выключено · совпадений: {n}"))
+                    text(format!("disabled · matches: {n}"))
                 }
             }
         };
         row![
             checkbox(enabled).on_toggle(move |on| Message::RegexEnabled(i, on)),
             pick_list(Field::ALL, Some(field.clone()), move |f| Message::RegexField(i, f)),
-            text_input("шаблон, например (?i)factorio", pattern)
+            text_input("pattern, e.g. (?i)factorio", pattern)
                 .on_input(move |p| Message::RegexPattern(i, p))
                 .width(Fill),
             status,
@@ -510,16 +510,16 @@ impl App {
 fn group_status(streams: &[&StreamView], checked: bool) -> (String, bool) {
     let has = |c| streams.iter().any(|v| v.capture == c);
     let (mut s, ok) = if has(CaptureStatus::InStream) {
-        ("в стриме".to_string(), true)
+        ("in stream".to_string(), true)
     } else if has(CaptureStatus::Blocked) {
-        ("заглушено".to_string(), false)
+        ("muted".to_string(), false)
     } else if !streams.is_empty() {
-        ("не захватывается".to_string(), false)
+        ("not captured".to_string(), false)
     } else {
-        ("не играет".to_string(), false)
+        ("not playing".to_string(), false)
     };
     if !checked && streams.iter().any(|v| v.allowed) {
-        s.push_str(" · разрешено regex");
+        s.push_str(" · allowed by regex");
     }
     (s, ok)
 }

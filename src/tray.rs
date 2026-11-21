@@ -37,7 +37,7 @@ impl ksni::Tray for AppTray {
     fn menu(&self) -> Vec<MenuItem<Self>> {
         vec![
             StandardItem {
-                label: "Показать окно".into(),
+                label: "Show window".into(),
                 activate: Box::new(|t: &mut Self| {
                     let _ = t.events.unbounded_send(AppEvent::ShowWindow);
                 }),
@@ -46,7 +46,7 @@ impl ksni::Tray for AppTray {
             .into(),
             MenuItem::Separator,
             StandardItem {
-                label: "Выход (вернуть весь звук)".into(),
+                label: "Quit (restore all audio)".into(),
                 icon_name: "application-exit".into(),
                 activate: Box::new(|t: &mut Self| {
                     let _ = t.events.unbounded_send(AppEvent::QuitRequested);

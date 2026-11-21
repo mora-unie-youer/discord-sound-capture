@@ -82,7 +82,7 @@ fn acquire_lock() -> Result<File, ()> {
     match file.try_lock() {
         Ok(()) => Ok(file),
         Err(TryLockError::WouldBlock) => {
-            println!("discord-sound-capture уже запущено");
+            println!("discord-sound-capture is already running");
             Err(())
         }
         Err(TryLockError::Error(e)) => {
