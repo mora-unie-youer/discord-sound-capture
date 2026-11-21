@@ -35,12 +35,30 @@ pub enum Message {
     WindowCloseRequested(window::Id),
     ToggleBinary { binary: String, label: Option<String>, on: bool },
     AddRegex,
+    RegexEnabled(usize, bool),
+    AddRegexFor { field: Field, value: String },
     RegexField(usize, Field),
     RegexPattern(usize, String),
     RemoveRule(usize),
     CopyWpRule,
     HideToTray,
     Quit,
+}
+
+fn quick_regex_buttons<'a>(binary: Option<&str>, app_name: Option<&str>) -> Element<'a, Message> {
+    let mk = |label: &'static str, field: Field, value: Option<&str>| {
+        let b = button(text(label).size(12));
+        match value.filter(|v| !v.is_empty()) {
+            Some(v) => b.on_press(Message::AddRegexFor { field, value: v.to_string() }),
+            None => b,
+        }
+    };
+    row![
+        mk("regex: процесс", Field::ProcessBinary, binary),
+        mk("regex: название", Field::ApplicationName, app_name),
+    ]
+    .spacing(4)
+    .into()
 }
 
 fn window_settings() -> window::Settings {
@@ -66,6 +84,8 @@ impl App {
             }
         };
         banners.wp_rule_missing = !wpcheck::wp_rule_present();
+        let mut config = config;
+        crate::rules::sort_rules(&mut config.rules);
         let _ = INITIAL_RULES.set(config.rules.clone());
 
         let hidden = std::env::args().any(|a| a == "--hidden");
@@ -185,9 +205,38 @@ impl App {
                 Task::none()
             }
             Message::AddRegex => {
-                self.config
-                    .rules
-                    .push(Rule::Regex { field: Field::ApplicationName, pattern: String::new() });
+                self.config.rules.push(Rule::Regex {
+                    field: Field::ApplicationName,
+                    pattern: String::new(),
+                    enabled: true,
+                });
+                self.persist();
+                Task::none()
+            }
+            Message::RegexEnabled(i, on) => {
+                if let Some(Rule::Regex { enabled, .. }) = self.config.rules.get_mut(i) {
+                    *enabled = on;
+                    self.persist();
+                }
+                Task::none()
+            }
+            Message::AddRegexFor { field: f, value } => {
+                let p = format!("^{}$", regex::escape(&value));
+                let existing = self.config.rules.iter_mut().find_map(|r| match r {
+                    Rule::Regex { field, pattern, enabled } if *field == f && *pattern == p => {
+                        Some(enabled)
+                    }
+                    _ => None,
+                });
+                match existing {
+                    Some(enabled) => *enabled = true,
+                    None => self.config.rules.push(Rule::Regex {
+                        field: f,
+                        pattern: p,
+                        enabled: true,
+                    }),
+                }
+                crate::rules::sort_rules(&mut self.config.rules);
                 self.persist();
                 Task::none()
             }
@@ -237,8 +286,8 @@ impl App {
 
         col = col.push(text("Regex-правила").size(20));
         for (i, rule) in self.config.rules.iter().enumerate() {
-            if let Rule::Regex { field, pattern } = rule {
-                col = col.push(self.regex_row(i, field, pattern));
+            if let Rule::Regex { field, pattern, enabled } = rule {
+                col = col.push(self.regex_row(i, field, pattern, *enabled));
             }
         }
         col = col.push(button("+ Добавить regex").on_press(Message::AddRegex));
@@ -376,9 +425,11 @@ impl App {
                         on,
                     }),
                     space().width(Fill),
+                    quick_regex_buttons(Some(r.binary), r.label),
                     st,
                 ]
                 .spacing(8)
+                .align_y(iced::Center)
                 .into(),
             );
         }
@@ -394,18 +445,33 @@ impl App {
             let st = if ok { st.style(text::success) } else { st };
             out.push(
                 row![
-                    text(format!("{name} — нет application.process.binary, используйте regex")),
+                    checkbox(true).icon(checkbox::Icon {
+                        font: iced::Font::default(),
+                        code_point: '−',
+                        size: None,
+                        line_height: iced::widget::text::LineHeight::default(),
+                        shaping: iced::widget::text::Shaping::Basic,
+                    }),
+                    text(format!("{name} — нет application.process.binary")),
                     space().width(Fill),
+                    quick_regex_buttons(None, v.info.app_name.as_deref()),
                     st,
                 ]
                 .spacing(8)
+                .align_y(iced::Center)
                 .into(),
             );
         }
         out
     }
 
-    fn regex_row<'a>(&'a self, i: usize, field: &Field, pattern: &'a str) -> Element<'a, Message> {
+    fn regex_row<'a>(
+        &'a self,
+        i: usize,
+        field: &Field,
+        pattern: &'a str,
+        enabled: bool,
+    ) -> Element<'a, Message> {
         let status = match validate_pattern(pattern) {
             Err(e) => text(format!("ошибка: {}", e.lines().next().unwrap_or(""))).style(text::danger),
             Ok(()) => {
@@ -418,10 +484,15 @@ impl App {
                             .count()
                     })
                     .unwrap_or(0);
-                text(format!("совпадений: {n}"))
+                if enabled {
+                    text(format!("совпадений: {n}"))
+                } else {
+                    text(format!("выключено · совпадений: {n}"))
+                }
             }
         };
         row![
+            checkbox(enabled).on_toggle(move |on| Message::RegexEnabled(i, on)),
             pick_list(Field::ALL, Some(field.clone()), move |f| Message::RegexField(i, f)),
             text_input("шаблон, например (?i)factorio", pattern)
                 .on_input(move |p| Message::RegexPattern(i, p))

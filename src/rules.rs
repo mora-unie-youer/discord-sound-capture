@@ -39,6 +39,18 @@ impl fmt::Display for Field {
     }
 }
 
+/// Binary rules first, then regex rules by field category, then by pattern.
+pub fn sort_rules(rules: &mut [Rule]) {
+    rules.sort_by_cached_key(|r| match r {
+        Rule::Binary { .. } => (0, 0, String::new()),
+        Rule::Regex { field, pattern, .. } => (
+            1,
+            Field::ALL.iter().position(|f| f == field).unwrap_or(usize::MAX),
+            pattern.clone(),
+        ),
+    });
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Rule {
@@ -49,7 +61,13 @@ pub enum Rule {
     Regex {
         field: Field,
         pattern: String,
+        #[serde(default = "default_true")]
+        enabled: bool,
     },
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -82,7 +100,8 @@ impl RuleSet {
         let compiled = rules
             .iter()
             .map(|r| match r {
-                Rule::Regex { pattern, .. } => regex::Regex::new(pattern).ok(),
+                Rule::Regex { pattern, enabled: true, .. } => regex::Regex::new(pattern).ok(),
+                Rule::Regex { enabled: false, .. } => None,
                 Rule::Binary { .. } => None,
             })
             .collect();
@@ -137,7 +156,15 @@ mod tests {
         }
     }
     fn re(field: Field, p: &str) -> Rule {
-        Rule::Regex { field, pattern: p.into() }
+        Rule::Regex { field, pattern: p.into(), enabled: true }
+    }
+
+    #[test]
+    fn disabled_regex_ignored() {
+        let on = Rule::Regex { field: Field::ApplicationName, pattern: "Factorio".into(), enabled: true };
+        let off = Rule::Regex { field: Field::ApplicationName, pattern: "Factorio".into(), enabled: false };
+        assert!(RuleSet::new(vec![on]).allows(&s()));
+        assert!(!RuleSet::new(vec![off]).allows(&s()));
     }
 
     #[test]

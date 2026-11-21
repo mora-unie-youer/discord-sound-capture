@@ -80,12 +80,22 @@ label = "Google Chrome"
 kind = "regex"
 field = "application.name"
 pattern = "(?i)factorio"
+
+[[rules]]
+kind = "regex"
+field = "node.name"
+pattern = "x"
+enabled = false
 "#;
         let c: Config = toml::from_str(src).unwrap();
-        assert_eq!(c.rules.len(), 2);
+        assert_eq!(c.rules.len(), 3);
         assert_eq!(
             c.rules[1],
-            Rule::Regex { field: Field::ApplicationName, pattern: "(?i)factorio".into() }
+            Rule::Regex { field: Field::ApplicationName, pattern: "(?i)factorio".into(), enabled: true }
+        );
+        assert_eq!(
+            c.rules[2],
+            Rule::Regex { field: Field::NodeName, pattern: "x".into(), enabled: false }
         );
         let back: Config = toml::from_str(&toml::to_string_pretty(&c).unwrap()).unwrap();
         assert_eq!(back, c);
