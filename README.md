@@ -6,9 +6,11 @@ Discord's screen share creates one capture stream per playback stream (a PulseAu
 
 ## Rules
 
-- **Checkbox** per application, matched by `application.process.binary`.
-- **Regex** on one of `application.name`, `application.process.binary`, `media.name`, `node.name`. It matches a substring; anchor with `^…$` for an exact match. A stream is allowed if any rule matches.
-- Streams without `application.process.binary` have no checkbox; use a regex.
+- **Checkbox** per application, matched by `application.process.binary`. Streams without a binary show a disabled checkbox with a minus sign.
+- **Regex** on one of `application.name`, `application.process.binary`, `media.name`, `node.name`. It matches a substring; anchor with `^…$` for an exact match. A stream is allowed if any enabled rule matches.
+- Each regex rule has an enable checkbox. A disabled rule stays in the config but allows nothing. Its status shows `disabled · matches: N`.
+- Each application row has two quick buttons, **regex: process** and **regex: name**. They add an exact rule `^<escaped value>$` on `application.process.binary` or `application.name`. A button is inactive if that value is missing. If the rule already exists, it is just enabled again.
+- Regex rules are sorted by field (`application.name`, `application.process.binary`, `media.name`, `node.name`), then by pattern. Sorting happens at startup and after a quick button; edits in the list do not reorder it while you type.
 
 Rules are saved to `$XDG_CONFIG_HOME/discord-sound-capture/config.toml` (default `~/.config/...`):
 
@@ -22,6 +24,7 @@ label = "Google Chrome"
 kind = "regex"
 field = "application.name"
 pattern = "(?i)factorio"
+enabled = true   # optional, defaults to true
 ```
 
 A broken config is renamed to `config.toml.broken-<unix time>` and the app starts with no rules.
