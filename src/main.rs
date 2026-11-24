@@ -31,6 +31,9 @@ pub enum AppEvent {
     ShutdownComplete,
     CoreDied,
     ShowWindow,
+    ToggleWindow,
+    TrayOnline,
+    TrayOffline,
     QuitRequested,
 }
 
@@ -43,6 +46,7 @@ pub fn worker() -> impl Stream<Item = AppEvent> {
         let rules = INITIAL_RULES.get().cloned().unwrap_or_default();
         let core = pulse::spawn(rules, tx.clone());
         let tray = tray::spawn(tx.clone()).map(|h| TrayHandle(Arc::new(h)));
+        listen_for_show(tx.clone());
 
         match signal_hook::iterator::Signals::new([SIGINT, SIGTERM, SIGHUP]) {
             Ok(mut signals) => {
@@ -63,10 +67,51 @@ pub fn worker() -> impl Stream<Item = AppEvent> {
     })
 }
 
-fn acquire_lock() -> Result<File, ()> {
-    let dir = std::env::var_os("XDG_RUNTIME_DIR")
+fn runtime_dir() -> std::path::PathBuf {
+    std::env::var_os("XDG_RUNTIME_DIR")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
+        .unwrap_or_else(std::env::temp_dir)
+}
+
+fn socket_path() -> std::path::PathBuf {
+    runtime_dir().join("discord-sound-capture.sock")
+}
+
+/// Ask the running instance to show its window. The primary may hold the lock
+/// but not have bound the socket yet, so retry briefly.
+fn notify_running() -> bool {
+    use std::io::Write;
+    for _ in 0..30 {
+        if let Ok(mut s) = std::os::unix::net::UnixStream::connect(socket_path()) {
+            return s.write_all(b"show\n").is_ok();
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    false
+}
+
+/// Listen for "show" requests from later launches. Only called while holding the lock,
+/// so a leftover socket file is stale.
+fn listen_for_show(tx: mpsc::UnboundedSender<AppEvent>) {
+    let path = socket_path();
+    let _ = std::fs::remove_file(&path);
+    let listener = match std::os::unix::net::UnixListener::bind(&path) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("cannot bind {}: {e}", path.display());
+            return;
+        }
+    };
+    std::thread::spawn(move || {
+        for conn in listener.incoming().flatten() {
+            drop(conn);
+            let _ = tx.unbounded_send(AppEvent::ShowWindow);
+        }
+    });
+}
+
+fn acquire_lock() -> Result<File, ()> {
+    let dir = runtime_dir();
     let file = match OpenOptions::new()
         .create(true)
         .write(true)
@@ -82,7 +127,10 @@ fn acquire_lock() -> Result<File, ()> {
     match file.try_lock() {
         Ok(()) => Ok(file),
         Err(TryLockError::WouldBlock) => {
-            println!("discord-sound-capture is already running");
+            if notify_running() {
+                std::process::exit(0);
+            }
+            eprintln!("discord-sound-capture is already running, but did not answer");
             Err(())
         }
         Err(TryLockError::Error(e)) => {

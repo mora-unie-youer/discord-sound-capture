@@ -9,6 +9,8 @@ use crate::rules::{Field, Rule, validate_pattern};
 use crate::wpcheck;
 use crate::{AppEvent, INITIAL_RULES, TrayHandle, worker};
 
+const TRAY_GRACE: std::time::Duration = std::time::Duration::from_secs(15);
+
 #[derive(Default)]
 struct Banners {
     config_error: Option<String>,
@@ -21,6 +23,7 @@ pub struct App {
     core: Option<CoreHandle>,
     tray: Option<TrayHandle>,
     tray_available: bool,
+    tray_online: bool,
     window: Option<window::Id>,
     config: Config,
     snapshot: Snapshot,
@@ -42,6 +45,7 @@ pub enum Message {
     RemoveRule(usize),
     CopyWpRule,
     HideToTray,
+    TrayGraceExpired,
     Quit,
 }
 
@@ -93,6 +97,7 @@ impl App {
             core: None,
             tray: None,
             tray_available: true,
+            tray_online: true,
             window: None,
             config,
             snapshot: Snapshot::default(),
@@ -110,6 +115,7 @@ impl App {
     fn open_window(&mut self) -> Task<Message> {
         let (id, task) = window::open(window_settings());
         self.window = Some(id);
+        self.sync_tray();
         task.map(Message::WindowOpened)
     }
 
@@ -137,9 +143,17 @@ impl App {
         }
     }
 
+    fn sync_tray(&self) {
+        if let Some(t) = &self.tray {
+            let visible = self.window.is_some();
+            t.0.update(move |t| t.window_visible = visible);
+        }
+    }
+
     fn close_window(&mut self, id: window::Id) -> Task<Message> {
         if self.tray_available {
             self.window = None;
+            self.sync_tray();
             window::close(id)
         } else {
             self.begin_quit()
@@ -152,7 +166,12 @@ impl App {
                 AppEvent::Ready { core, tray } => {
                     self.core = Some(core);
                     self.tray_available = tray.is_some();
+                    self.tray_online = tray.is_some();
                     self.tray = tray;
+                    self.sync_tray();
+                    if !self.tray_available && self.window.is_none() {
+                        return self.open_window();
+                    }
                     Task::none()
                 }
                 AppEvent::Snapshot(s) => {
@@ -168,6 +187,28 @@ impl App {
                     Some(id) => window::gain_focus(id),
                     None => self.open_window(),
                 },
+                AppEvent::ToggleWindow => match self.window {
+                    Some(id) if self.tray_available => self.close_window(id),
+                    Some(id) => window::gain_focus(id),
+                    None => self.open_window(),
+                },
+                AppEvent::TrayOnline => {
+                    self.tray_online = true;
+                    self.tray_available = true;
+                    self.sync_tray();
+                    Task::none()
+                }
+                AppEvent::TrayOffline => {
+                    // The watcher is often just late at login: give it time before
+                    // showing the window as a fallback.
+                    self.tray_online = false;
+                    let (tx, rx) = futures::channel::oneshot::channel();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(TRAY_GRACE);
+                        let _ = tx.send(());
+                    });
+                    Task::perform(async move { let _ = rx.await; }, |_| Message::TrayGraceExpired)
+                }
                 AppEvent::QuitRequested => self.begin_quit(),
                 AppEvent::ShutdownComplete => iced::exit(),
                 AppEvent::CoreDied => {
@@ -181,6 +222,13 @@ impl App {
                 Task::none()
             }
             Message::WindowCloseRequested(id) => self.close_window(id),
+            Message::TrayGraceExpired => {
+                if self.tray_online {
+                    return Task::none();
+                }
+                self.tray_available = false;
+                if self.window.is_none() && !self.quitting { self.open_window() } else { Task::none() }
+            }
             Message::HideToTray => match self.window {
                 Some(id) if self.tray_available => self.close_window(id),
                 _ => Task::none(),
